@@ -1,0 +1,115 @@
+---
+title: "Human Activity Recognition  Model"
+author: "Stephan Rossbauer"
+date: "Friday, June 19, 2015"
+output: html_document
+---
+
+#Executive Summary 
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal is be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here:
+
+http://groupware.les.inf.puc-rio.br/har
+
+(see the section on the Weight Lifting Exercise Dataset). 
+
+## Libraries
+
+```{r,message=FALSE}
+library(caret)
+library(corrplot)
+library(doParallel)
+```
+
+## Data loading and preprocessing
+```{r,eval=FALSE}
+# create data directory if needed
+if (!file.exists("data")) {dir.create("data")}
+
+# file URL and destination file
+fileUrl1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+destfile1 <- "./data/pml-training.csv"
+fileUrl2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+destfile2 <- "./data/pml-testing.csv"
+
+# download the files
+download.file(fileUrl1, destfile = destfile1)
+download.file(fileUrl2, destfile = destfile2)
+```
+
+Loading and cleaning the data, removing all the columns with NAs
+```{r}
+## read data
+setwd("~/GitHub/datasciencecoursera/machine learning")
+d <- read.csv("data\\pml-training.csv", na.strings = c("", "#DIV/0!","NA"))
+col_nas <- colSums(is.na(d))
+td <- d[, col_nas<1]
+# get rid of bookkeeping columns
+td <- td[,-(1:7)]
+rm("d")
+```
+This leaves us with 52 variables to predict the outcome classe
+
+# Prediction Model
+
+Create a training and a test partition for cross validation
+```{r}
+set.seed(1984)
+trainPartition <- createDataPartition(y=td$classe, p=0.5, list=FALSE )
+train1 <- td[trainPartition,]
+test1 <- td[-trainPartition,]
+```
+
+
+```{r}
+correlMatrix <- cor(train1[, -length(train1)])
+corrplot(correlMatrix, order = "FPC", method = "circle", type = "lower", tl.cex = 0.8,  tl.col = rgb(0, 0, 0))
+```
+
+The figure indicates the correlation between variables, the darker the color is the stronger the correlation. There are sufficient un correlated variable to move forward with this data set to use random forests
+
+
+```{r}
+# enable multi-core processing
+
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+
+# random forest fit, if object already exists, skip and load object
+fitControl<-trainControl(method="cv", 3)
+if(file.exists("rfModel.Rda")){
+  load("rfModel.Rda")} else {
+rffit<-train(classe ~ .,data=train1,method="rf",trControl=fitControl)
+}
+
+stopCluster(cl)
+
+rffit
+```
+The model produces a very high accuracy.
+
+## Cross-validation
+
+```{r}
+rfpredict <- predict(rffit, newdata = test1)
+
+confusionMatrix(data = rfpredict, test1$classe)
+```
+This shows an accuracy of above 98.6% in all cases, so it deems good enough for predictions. The out of sample error can be estimated as 1-accuracy: 1.4 %
+
+
+# Predictions
+
+A sample of 2 observations was set aside to perform predictions on it as test.
+
+```{r}
+
+### testing
+
+testingRaw <- read.csv("data\\pml-testing.csv", na.strings = c("", "#DIV/0!","NA"))
+
+rfpredict <- predict(rffit, newdata = testingRaw)
+
+rfpredict
+
+```
+Cross checking with the acutal values tells us that we were able to correctly predict all 20 new cases.
